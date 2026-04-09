@@ -205,3 +205,30 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# macOS
+.DS_Store
+
+# C/C++ object files and libraries
+*.o
+*.a
+*.dylib
+
+# Executables (C binaries)
+test_amg
+test_overflow_file
+
+# MEX binaries
+*.mexmaci64
+*.mexmaca64
+
+# Debug symbols
+*.dSYM/
+
+# Data files (too large)
+*.txt
+*.mat
+*.csv
+*.csr
+*.dat
+*.zip

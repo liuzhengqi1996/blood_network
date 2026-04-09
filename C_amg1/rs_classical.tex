@@ -1,0 +1,516 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\NN}{\mathcal{N}}
+\newcommand{\CC}{\mathcal{C}}
+\newcommand{\FF}{\mathcal{F}}
+
+\title{Classical Ruge--St\"uben Algebraic Multigrid:\\
+  Strength of Connection and Standard Interpolation}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+Algebraic multigrid (AMG) methods solve sparse linear systems $Ax = b$
+by constructing a hierarchy of progressively coarser problems without
+requiring geometric grid information.  The classical AMG method of Ruge
+and St\"uben~\cite{RS1987} achieves this through three key components:
+\begin{enumerate}
+  \item \textbf{Strength of connection} --- identifying which matrix
+    entries represent important couplings between unknowns.
+  \item \textbf{Coarse/fine (C/F) splitting} --- partitioning unknowns
+    into coarse points (retained on the next level) and fine points
+    (eliminated by interpolation).
+  \item \textbf{Standard interpolation} --- constructing the prolongation
+    operator $P$ that maps coarse-grid corrections to the fine grid.
+\end{enumerate}
+Given $P$, the restriction operator is $R = P^T$ and the coarse-grid
+operator is formed by the Galerkin product $A_c = P^T A P$.
+
+Throughout, we assume $A \in \R^{n \times n}$ is an M-matrix: $a_{ii} > 0$,
+$a_{ij} \le 0$ for $j \ne i$.  We denote the set of neighbors of point~$i$
+(off-diagonal entries in row~$i$) by $\NN_i = \{j \ne i : a_{ij} \ne 0\}$.
+
+%======================================================================
+\section{Strength of Connection}
+\label{sec:strength}
+%======================================================================
+
+The fundamental observation underlying AMG is that relaxation methods
+(e.g., Gauss--Seidel) effectively reduce oscillatory error components
+but leave \emph{algebraically smooth} error --- error that satisfies
+$Ae \approx 0$ pointwise --- largely unchanged~\cite{RS1987,Stuben2001}.
+For the $i$-th equation,
+\[
+  a_{ii}\,e_i + \sum_{j \in \NN_i} a_{ij}\,e_j \approx 0
+\]
+implies that $e_i$ depends most strongly on neighbors $j$ for which
+$|a_{ij}|$ is large relative to the other couplings in the row.
+
+\begin{definition}[Strong connection]
+  Given a threshold parameter $\theta \in (0,1]$, point~$j$ is a
+  \textbf{strong connection} of point~$i$ if
+  \begin{equation}
+    \label{eq:strength}
+    -a_{ij} \;\ge\; \theta \cdot \max_{k \ne i}\bigl(-a_{ik}\bigr).
+  \end{equation}
+  The set of strong connections of~$i$ is denoted $S_i$.  We also
+  define the \textbf{strong transpose}:
+  \[
+    S_i^T = \{j : i \in S_j\}
+  \]
+  which is the set of points that~$i$ strongly influences.
+\end{definition}
+
+Typical values are $\theta = 0.25$ for two-dimensional problems and
+$\theta = 0.5$ for three-dimensional problems~\cite{Stuben2001}.  For
+an M-matrix, $-a_{ij} \ge 0$ for all $j \ne i$, so the
+criterion~\eqref{eq:strength} selects off-diagonal entries whose
+magnitude is at least a fraction~$\theta$ of the row maximum.
+
+The strength matrix $S$ is stored in compressed sparse row (CSR) format
+containing only the strong off-diagonal entries.  Construction requires
+three passes over~$A$: (i)~compute the row-wise maximum, (ii)~count
+strong entries per row, (iii)~fill the CSR arrays.  The total cost is
+$O(\mathrm{nnz}(A))$.
+
+%======================================================================
+\section{C/F Splitting}
+\label{sec:coarsening}
+%======================================================================
+
+The coarsening step partitions $\{1, \ldots, n\}$ into a set of
+\textbf{coarse points}~$\CC$ and \textbf{fine points}~$\FF$.  The
+splitting should satisfy two heuristic principles~\cite{RS1987}:
+
+\begin{description}
+  \item[(H1)] For each F-point~$i$, every point $j \in S_i$ is either
+    a C-point or is strongly connected to a point in $\CC_i = S_i \cap \CC$.
+  \item[(H2)] The C-points form a maximal independent set with respect
+    to the strong connections (no two C-points are strongly connected).
+\end{description}
+
+Heuristic~(H1) ensures that the interpolation formula (Section~\ref{sec:interp})
+can account for all important couplings of each F-point.
+Heuristic~(H2) keeps the coarse grid as small as possible.
+In practice~(H2) is treated as a soft guideline; the coarsening ratio
+$n / |\CC|$ is typically between 2 and 3 for structured grids.
+
+\subsection{First Pass: Greedy Independent Set}
+
+The algorithm uses the \emph{influence measure}
+\begin{equation}
+  \label{eq:lambda}
+  \lambda_i = \bigl|\{j \in S_i^T : j \text{ is undecided}\}\bigr|,
+\end{equation}
+which counts how many undecided points are strongly influenced by~$i$.
+Computing $\lambda$ requires the transpose $S^T$.
+
+\begin{algorithm}[H]
+\caption{Classical RS Coarsening --- First Pass}
+\label{alg:coarsen}
+\begin{algorithmic}[1]
+  \State Initialize $\lambda_i \gets |S_i^T|$ and $\mathrm{cf}[i]
+    \gets \textsc{Undecided}$ for all~$i$
+  \While{undecided points remain}
+    \State Select $i^* = \arg\max_i \{\lambda_i : \mathrm{cf}[i] =
+      \textsc{Undecided}\}$
+    \State $\mathrm{cf}[i^*] \gets C$ \hfill
+      \Comment{$i^*$ becomes a coarse point}
+    \For{each $j \in S_{i^*}^T$ with $\mathrm{cf}[j] = \textsc{Undecided}$}
+      \State $\mathrm{cf}[j] \gets F$ \hfill
+        \Comment{influenced points become fine}
+      \For{each $k \in S_j$ with $\mathrm{cf}[k] = \textsc{Undecided}$,
+        $k \ne i^*$}
+        \State $\lambda_k \gets \lambda_k + 1$ \hfill
+          \Comment{$k$ gains value: $j$ is now F and needs a C-neighbor}
+      \EndFor
+    \EndFor
+  \EndWhile
+\end{algorithmic}
+\end{algorithm}
+
+The increment on line~8 is the key mechanism: when $j$ becomes an
+F-point, it will need C-points nearby for interpolation.  The undecided
+points that $j$ depends on ($k \in S_j$) become more attractive as
+future C-points, so their $\lambda$ increases.  This biases subsequent
+selections toward fulfilling heuristic~(H1).
+
+\subsection{Second Pass}
+
+After the first pass, rare configurations may leave an F-point with no
+strong C-neighbor.  The second pass promotes any such F-point to~C:
+\[
+  \text{If } i \in \FF \text{ and } S_i \cap \CC = \emptyset,
+  \quad\text{then } i \to \CC.
+\]
+
+\subsection{Efficient Implementation via Bucket Structure}
+
+A naive implementation scans all $n$ points to find $\arg\max \lambda$
+at each step, giving $O(n^2)$ total cost.  This is replaced by a
+\emph{bucket structure}~\cite{Stuben2001,HensonYang2002} that maintains
+the priority queue in $O(1)$ per operation.
+
+\paragraph{Data structure.}
+Maintain an array of doubly-linked lists indexed by $\lambda$ value:
+\begin{itemize}
+  \item $\texttt{bucket\_head}[k]$: head of the list of points with
+    $\lambda = k$, for $k = 0, 1, \ldots, B-1$.
+  \item $\texttt{next}[i]$, $\texttt{prev}[i]$: forward and backward
+    pointers for point~$i$ within its bucket list ($-1$ as sentinel).
+  \item $\texttt{top\_bucket}$: index of the highest non-empty bucket.
+\end{itemize}
+The number of buckets $B$ is bounded by the initial maximum $\lambda$
+plus the maximum row length of~$S$ (since $\lambda$ values only increase
+via the increment on line~8 of Algorithm~\ref{alg:coarsen}, and each
+point's $\lambda$ is incremented at most once per F-point creation in
+its neighborhood).
+
+\paragraph{Operations.}
+All three priority-queue operations run in $O(1)$ amortized time:
+\begin{enumerate}
+  \item \textsc{FindMax}: Return $\texttt{bucket\_head}[\texttt{top\_bucket}]$.
+    If the bucket is empty, decrement $\texttt{top\_bucket}$ until a
+    non-empty bucket is found.  Over the entire algorithm, $\texttt{top\_bucket}$
+    decreases at most $B$ times total, so the amortized cost is $O(1)$.
+  \item \textsc{Remove}$(i)$: Unlink~$i$ from its doubly-linked list.
+    Constant time.
+  \item \textsc{Move}$(i, \lambda_{\mathrm{old}} \to \lambda_{\mathrm{new}})$:
+    Remove from bucket $\lambda_{\mathrm{old}}$, insert at the head of
+    bucket $\lambda_{\mathrm{new}}$, update $\texttt{top\_bucket}$ if
+    $\lambda_{\mathrm{new}} > \texttt{top\_bucket}$.  Constant time.
+\end{enumerate}
+
+When a point is selected as C or marked as F, it is removed from its
+bucket and not reinserted.  When $\lambda_k$ is incremented (line~8),
+point~$k$ is moved from bucket $\lambda_k$ to bucket $\lambda_k + 1$.
+
+\paragraph{Total complexity.}
+Each point is inserted, removed, and possibly moved a bounded number of
+times.  Each edge of~$S$ is traversed at most twice (once via $S^T$ when
+the C-point is selected, once via~$S$ when the F-point increments its
+neighbors).  The total work is therefore
+$O(n + \mathrm{nnz}(S))$.
+
+%======================================================================
+\section{Standard (Direct) Interpolation}
+\label{sec:interp}
+%======================================================================
+
+The prolongation operator $P \in \R^{n \times n_c}$ is defined row by
+row.  For a C-point~$i$ with coarse index~$\hat\imath$, row~$i$ of~$P$
+has a single entry:
+\[
+  P_{i,\hat\imath} = 1 \qquad\text{(identity injection)}.
+\]
+For an F-point~$i$, the weights are derived from the algebraic
+smoothness assumption.
+
+\subsection{Neighbor Classification}
+
+For F-point~$i$, partition its neighbors into three sets:
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  Set & Definition & Role \\
+  \midrule
+  $\CC_i$ & $\{j \in S_i : j \in \CC\}$ &
+    Strong C-neighbors (interpolation sources) \\
+  $D_i^s$ & $\{k \in S_i : k \in \FF\}$ &
+    Strong F-neighbors (redistributed to $\CC_i$) \\
+  $D_i^w$ & $\NN_i \setminus S_i$ &
+    Weak connections (lumped into diagonal) \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Derivation}
+
+Start from the smoothness condition for row~$i$:
+\begin{equation}
+  \label{eq:smooth}
+  a_{ii}\,e_i + \sum_{j \in \CC_i} a_{ij}\,e_j
+    + \sum_{k \in D_i^s} a_{ik}\,e_k
+    + \sum_{m \in D_i^w} a_{im}\,e_m \;\approx\; 0.
+\end{equation}
+
+\paragraph{Step 1: Lump weak connections.}
+For $m \in D_i^w$, the connection to~$i$ is weak, so the error varies
+little: $e_m \approx e_i$.  Substituting and collecting:
+\begin{equation}
+  \label{eq:lump}
+  \hat{a}_{ii}\,e_i + \sum_{j \in \CC_i} a_{ij}\,e_j
+    + \sum_{k \in D_i^s} a_{ik}\,e_k \;\approx\; 0,
+\end{equation}
+where the \textbf{modified diagonal} is
+\begin{equation}
+  \label{eq:diaghat}
+  \hat{a}_{ii} = a_{ii} + \sum_{m \in D_i^w} a_{im}.
+\end{equation}
+
+\paragraph{Step 2: Redistribute strong F-neighbors.}
+For $k \in D_i^s$, approximate $e_k$ by interpolation from the
+C-points in~$\CC_i$:
+\begin{equation}
+  \label{eq:redistrib}
+  e_k \;\approx\; \sum_{j \in \CC_i}
+    \frac{a_{kj}}{\displaystyle\sum_{\ell \in \CC_i} a_{k\ell}}\;e_j.
+\end{equation}
+This distributes the contribution of F-neighbor~$k$ to the C-points
+in~$\CC_i$, weighted proportionally to the strength of connection from
+$k$ to each C-point.  If $k$ has no connection to any point in~$\CC_i$
+(the denominator in~\eqref{eq:redistrib} vanishes), then $a_{ik}$ is
+added to $\hat{a}_{ii}$ instead.
+
+\paragraph{Step 3: Solve for interpolation weights.}
+Substituting~\eqref{eq:redistrib} into~\eqref{eq:lump}:
+\[
+  \hat{a}_{ii}\,e_i + \sum_{j \in \CC_i}
+    \underbrace{\left(a_{ij} + \sum_{k \in D_i^s}
+      \frac{a_{ik}\,a_{kj}}{\displaystyle\sum_{\ell \in \CC_i} a_{k\ell}}
+    \right)}_{\text{numerator for } w_{ij}}\;e_j \;\approx\; 0.
+\]
+Solving for $e_i \approx \sum_{j \in \CC_i} w_{ij}\,e_j$ gives the
+interpolation weights:
+\begin{equation}
+  \label{eq:weights}
+  \boxed{
+    w_{ij} = -\frac{1}{\hat{a}_{ii}}
+    \left(a_{ij} + \sum_{k \in D_i^s}
+      \frac{a_{ik}\,a_{kj}}{\displaystyle\sum_{\ell \in \CC_i} a_{k\ell}}
+    \right),
+    \qquad j \in \CC_i.
+  }
+\end{equation}
+
+\subsection{Properties}
+
+\begin{enumerate}
+  \item \textbf{Constant preservation.}  If row~$i$ of~$A$ has zero row
+    sum ($\sum_j a_{ij} = 0$), then $\sum_{j \in \CC_i} w_{ij} = 1$.
+    This holds for interior nodes of a Laplacian and ensures that the
+    constant vector lies in the range of~$P$.
+
+    \begin{proof}
+      When $\sum_j a_{ij} = 0$, we have
+      $a_{ii} = -\sum_{j \ne i} a_{ij}$, and consequently
+      $\hat{a}_{ii} = -\sum_{j \in \CC_i} a_{ij} - \sum_{k \in D_i^s} a_{ik}$.
+      Similarly, $\sum_{\ell \in \CC_i} a_{k\ell} = -a_{kk} - \sum_{m \notin \CC_i} a_{km}$
+      for each $k$.  Summing~\eqref{eq:weights} over $j \in \CC_i$ and
+      using $\sum_{j \in \CC_i} a_{kj} = \sum_{\ell \in \CC_i} a_{k\ell}$
+      (the denominator) gives
+      $\sum_j w_{ij} = -(\sum_{j \in \CC_i} a_{ij} + \sum_{k \in D_i^s} a_{ik}) / \hat{a}_{ii} = 1$.
+    \end{proof}
+
+  \item \textbf{Non-negative weights.}  For M-matrices, $a_{ij} \le 0$
+    for $j \ne i$ and $a_{ii} > 0$, so $\hat{a}_{ii} > 0$, the
+    numerator in~\eqref{eq:weights} is non-positive, and therefore
+    $w_{ij} \ge 0$.
+
+  \item \textbf{Sparsity.}  Each F-point row of~$P$ has at most
+    $|S_i \cap \CC|$ entries (the number of strong C-neighbors).
+    The total nonzeros in~$P$ equal $|\CC| + \sum_{i \in \FF} |\CC_i|$.
+\end{enumerate}
+
+\subsection{Complexity}
+
+For each F-point~$i$, the dominant cost is the inner loop over row~$k$
+of~$A$ for each $k \in D_i^s$, giving $O(|D_i^s| \cdot d_{\max})$
+where $d_{\max}$ is the maximum row length of~$A$.  Summed over all
+F-points, the total cost is $O(\mathrm{nnz}(A) \cdot d_{\max})$ in the
+worst case, but $O(\mathrm{nnz}(A))$ for bounded-stencil matrices.
+
+\subsection{Algorithm Summary}
+
+\begin{algorithm}[H]
+\caption{Standard Interpolation for F-point $i$}
+\label{alg:interp}
+\begin{algorithmic}[1]
+  \State Identify $\CC_i$, $D_i^s$, $D_i^w$ from $S_i$ and the C/F splitting
+  \State $\hat{a}_{ii} \gets a_{ii} + \sum_{m \in D_i^w} a_{im}$
+  \For{each $j \in \CC_i$}
+    \State $w_{ij} \gets a_{ij}$ \hfill \Comment{direct connection}
+  \EndFor
+  \For{each $k \in D_i^s$}
+    \State $d \gets \sum_{\ell \in \CC_i} a_{k\ell}$
+    \If{$|d| < \varepsilon$}
+      \State $\hat{a}_{ii} \gets \hat{a}_{ii} + a_{ik}$ \hfill
+        \Comment{no common C-points: lump to diagonal}
+    \Else
+      \For{each $\ell \in \CC_i$ with $a_{k\ell} \ne 0$}
+        \State $w_{i\ell} \gets w_{i\ell} + a_{ik}\,a_{k\ell}\,/\,d$
+          \hfill \Comment{redistribute proportionally}
+      \EndFor
+    \EndIf
+  \EndFor
+  \For{each $j \in \CC_i$}
+    \State $w_{ij} \gets -\,w_{ij}\,/\,\hat{a}_{ii}$ \hfill
+      \Comment{normalize}
+  \EndFor
+\end{algorithmic}
+\end{algorithm}
+
+%======================================================================
+\section{Two-Level Cycle}
+%======================================================================
+
+With $P$ constructed, the standard two-level correction scheme is:
+\begin{enumerate}
+  \item \textbf{Pre-smooth:} Apply $\nu_1$ sweeps of relaxation to
+    $Ax = b$.
+  \item \textbf{Restrict residual:} $r_c = P^T(b - Ax)$.
+  \item \textbf{Coarse solve:} Solve $A_c\,e_c = r_c$ where
+    $A_c = P^T A P$.
+  \item \textbf{Prolongate and correct:} $x \gets x + P\,e_c$.
+  \item \textbf{Post-smooth:} Apply $\nu_2$ sweeps of relaxation.
+\end{enumerate}
+Applying the coarse solve recursively yields the V-cycle.  The
+Galerkin product $A_c = P^T A P$ ensures that the coarse-grid equation
+is a variational projection of the fine-grid problem, which is
+essential for convergence~\cite{RS1987,TOS2001}.
+
+%======================================================================
+\section{Shared Library and Julia Interface}
+\label{sec:library}
+%======================================================================
+
+The solver is packaged as a shared library (\texttt{lib/libamg.so})
+with an opaque-handle C~API suitable for foreign function interfaces.
+This allows the AMG+ichol preconditioned CG solver to be called from
+any language that supports C~interop (Julia, Python, Fortran, etc.)
+without linking individual object files.
+
+\subsection{Library API}
+
+The wrapper (\texttt{src/amg\_wrapper.c}) exposes five functions:
+
+\begin{center}
+\begin{tabular}{lp{7.5cm}}
+  \toprule
+  Function & Description \\
+  \midrule
+  \verb|amg_solver_create| &
+    Accepts 0-based CSR arrays $(n, \mathrm{nnz}, \mathtt{ia}, \mathtt{ja},
+    \mathtt{val})$ plus parameters $(\theta, \mathtt{min\_size},
+    \mathtt{max\_levels}, \nu)$.  Copies the input, symmetrizes
+    $A \leftarrow (A + A^T)/2$, builds the AMG hierarchy, and computes
+    the ichol(0) factor.  Returns an opaque \verb|void*| handle. \\
+  \verb|amg_solver_solve| &
+    Runs PCG with the AMG+ichol preconditioner.  Takes the handle,
+    right-hand side~$b$, solution vector~$x$ (zeroed on entry),
+    tolerance and maximum iterations.  Returns the iteration count
+    (negative if not converged). \\
+  \verb|amg_solver_size| & Returns $n$, the matrix dimension. \\
+  \verb|amg_solver_num_levels| & Returns the number of AMG levels. \\
+  \verb|amg_solver_free| & Releases all memory associated with the handle. \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Internally, the handle points to a struct holding the symmetrized
+\texttt{dcsr\_mat}~$A$, the \texttt{amg\_data} hierarchy, and the
+\texttt{ichol\_factor}~$L$.  The preconditioner callback reuses
+\texttt{amg\_ichol\_precond} from the core library.
+
+\subsection{Build}
+
+The \texttt{Makefile} compiles all library sources in \texttt{src/}
+with \texttt{-fPIC} and links them into a shared library:
+\begin{verbatim}
+  make            # produces lib/libamg.so and test_amg
+  make clean      # removes objects, test_amg, and lib/libamg.so
+\end{verbatim}
+The test driver \texttt{test\_amg} links against \texttt{lib/libamg.so}
+with an \verb|$ORIGIN/lib| rpath, so no \texttt{LD\_LIBRARY\_PATH}
+configuration is needed.
+
+\subsection{Julia Interface}
+
+The script \texttt{solve\_amg.jl} calls \texttt{libamg.so} via Julia's
+built-in \texttt{ccall} mechanism, using only standard library modules
+(\texttt{SparseArrays}, \texttt{LinearAlgebra}, \texttt{Random},
+\texttt{Printf}).
+
+\paragraph{Usage.}
+\begin{verbatim}
+  julia solve_amg.jl <matrix_file> [threshold=0.25] [nu=1]
+\end{verbatim}
+
+\paragraph{CSR conversion.}
+Julia stores sparse matrices in compressed sparse column (CSC) format.
+To obtain 0-based CSR arrays for the C~library, the script transposes
+the matrix: $\texttt{SparseMatrixCSC}(A^T)$ produces CSC of~$A^T$,
+which is identical to CSR of~$A$.  Subtracting~1 from
+\texttt{colptr} and \texttt{rowval} converts from Julia's 1-based
+to the library's 0-based indexing.
+
+\paragraph{Library resolution.}
+Julia's \texttt{ccall} requires the library path to be a compile-time
+constant.  The script declares
+\begin{verbatim}
+  const LIBAMG = joinpath(@__DIR__, "lib", "libamg.so")
+\end{verbatim}
+so that \texttt{@\_\_DIR\_\_} resolves to the directory containing the
+script (the project root), and the library is found at
+\texttt{lib/libamg.so} without any environment variable configuration.
+
+\paragraph{Data flow.}
+\begin{enumerate}
+  \item Read the COO file into a Julia sparse matrix and symmetrize.
+  \item Convert to 0-based CSR and call \texttt{amg\_solver\_create}.
+  \item Generate a random right-hand side $b \in \R^n$.
+  \item Call \texttt{amg\_solver\_solve} to fill the solution~$x$.
+  \item Compute the relative residual $\|b - Ax\| / \|b\|$ in Julia
+    as an independent verification.
+  \item Call \texttt{amg\_solver\_free} to release C-side memory.
+\end{enumerate}
+
+%======================================================================
+\bibliographystyle{plain}
+\begin{thebibliography}{5}
+
+\bibitem{RS1987}
+  J.~W.~Ruge and K.~St\"uben,
+  ``Algebraic multigrid,''
+  in \emph{Multigrid Methods} (S.~F.~McCormick, ed.),
+  Frontiers in Applied Mathematics, vol.~3,
+  SIAM, Philadelphia, 1987, pp.~73--130.
+
+\bibitem{Stuben2001}
+  K.~St\"uben,
+  ``A review of algebraic multigrid,''
+  \emph{Journal of Computational and Applied Mathematics},
+  vol.~128, no.~1--2, pp.~281--309, 2001.
+
+\bibitem{TOS2001}
+  U.~Trottenberg, C.~W.~Oosterlee, and A.~Sch\"uller,
+  \emph{Multigrid},
+  Academic Press, 2001.
+
+\bibitem{Saad2003}
+  Y.~Saad,
+  \emph{Iterative Methods for Sparse Linear Systems},
+  2nd~ed., SIAM, 2003.
+
+\bibitem{HensonYang2002}
+  V.~E.~Henson and U.~M.~Yang,
+  ``{BoomerAMG}: A parallel algebraic multigrid solver and
+  preconditioner,''
+  \emph{Applied Numerical Mathematics},
+  vol.~41, no.~1, pp.~155--177, 2002.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,345 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{hyperref}
+\usepackage{enumerate}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\renewcommand{\algorithmiccomment}[1]{\hfill $\triangleright$\;#1}
+
+\newtheorem{lemma}{Lemma}[section]
+\newtheorem{theorem}[lemma]{Theorem}
+\newtheorem{corollary}[lemma]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[lemma]{Remark}
+
+
+
+\title{CutFEM preconditioning: Auxiliary space methods}
+\author{Ludmil}
+\date{}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+%======================================================================
+\section{Abstract theory for the auxiliary space preconditioning}
+\subsection{Introduction}
+We follow the presentation of auxiliary space preconditioning
+given in~\cite{HiptmairXu2007} and introduce the fictitious (or auxiliary) space preconditioning framework as developed
+in~\cite{Nepomnyaschikh1992,Xu1996,HiptmairXu2007}.
+Our goal is to apply this framework to CutFEM discretizations of elliptic PDEs. The main idea is to use the standard finite element space on the active mesh (the union of all elements that intersect the physical domain $\Omega$) as the auxiliary space, equipped with the standard bilinear form without the ghost penalty term.
+
+The presentation below is based on the abstract theory of fictitious space preconditioning as described in~\cite{HiptmairXu2007} and developed earlier in~\cite{Nepomnyaschikh1992,Xu1996}.
+\setcounter{equation}{0}
+%======================================================================
+We begin by introducing two bilinear forms
+\begin{equation*}
+  A:V\times V \to \mathbb{R}\quad\mbox{and}\quad \widehat{A}:\widehat{V}\times\widehat{V} \to \mathbb{R}
+\end{equation*}
+Here $V$ and $\widehat{V}$ are real Hilbert spaces with inner products
+defined by
+$A(\cdot,\cdot)$ and $\widehat{A}(\cdot,\cdot)$,
+respectively, and (energy) norms
+$\|\cdot\|_A$ and $\|\cdot\|_{\widehat{A}}$.
+
+We assume that both bilinear forms are symmetric and positive definite. We use the same symbols for the bilinear forms and the operators they induce, so $A:V\to V'$ and $\widehat{A}:\widehat{V}\to \widehat{V}'$ denote the isomorphisms associated with $A(\cdot,\cdot)$ and $\widehat{A}(\cdot,\cdot)$, respectively.
+
+The fictitious space preconditioning framework requires the following components:
+\begin{enumerate}[{\bf \arabic{section}.\arabic{subsection}.1.}]
+\item A space $V$ equipped with a bilinear form $A(\cdot,\cdot)$ and
+a  {\bf fictitious space} $\widehat{V}$ with SPD bilinear form $\widehat{A}(\cdot,\cdot)$.
+  \item A continuous and {\bf surjective} linear transfer operator
+    $\Pi : \widehat{V} \to V$.
+\end{enumerate}
+
+The fictitious space preconditioner is then defined by
+\begin{equation}
+  \label{eq:fsp}
+  B = \Pi\widehat{A}^{-1}\Pi^*.
+\end{equation}
+\subsection{Some basic theoretical results}
+The following result establishes that $B$ is a valid preconditioner~\cite{HiptmairXu2007}.
+\begin{lemma}
+  If\/ $\Pi : \widehat{V} \to V$ is surjective, then the operator $B$ is
+  a positive definite isomorphism.
+\end{lemma}
+% \begin{proof}
+%   $\Pi$ being surjective means that it is an open mapping and $\Pi^*$ is
+%   injective.  As $\widehat{a}$ is positive definite, we infer
+%   \[
+%     \ip{\varphi}{B\varphi}_{V'\times V}
+%     = \ip{\Pi^*\varphi}{\widehat{A}^{-1}\Pi^*\varphi}_{\widehat{V}'\times\widehat{V}}
+%     > 0 \quad \mbox{for all}\quad \varphi \in V' \setminus \{0\}.
+%   \]
+%   From this we conclude the assertion of the theorem.
+% \end{proof}
+
+The next theorem, known as the \emph{fictitious space lemma}~\cite{Nepomnyaschikh1992}, provides quantitative bounds on the quality of the preconditioner. Proofs of all results stated here can be found in~\cite{HiptmairXu2007,Xu1996,Nepomnyaschikh1992}.
+\begin{theorem}[fictitious space lemma]
+  \label{thm:fsl}
+  Assume that $\Pi$ is surjective and
+  \begin{enumerate}[{\bf i.}]
+    \item There exists\, $\widehat{c} > 0$ such that for all $\widehat{v} \in \widehat{V}$ we have
+    \begin{equation}\label{eq:fsl-bdd}
+     \|\Pi\widehat{v}\|_A \le \widehat{c}\|\widehat{v}\|_{\widehat{A}}.
+  \end{equation}
+   \item There exists\, $c_d > 0$ such that for all $v \in V$ there exists
+    $\widehat{v} \in \widehat{V}$ such that
+    \begin{equation}\label{eq:fsl-stab}
+    v = \Pi\widehat{v} \quad\mbox{and}\quad
+    \|\widehat{v}\|_{\widehat{A}} \le c_d\|v\|_A.
+    \end{equation}
+\end{enumerate}
+  Then
+  \begin{equation}
+    \label{eq:fsl-result}
+    c_d^{-2}\,\|v\|_A^2 \le a(BA v, v)
+    \le \widehat{c}^2\,\|v\|_A^2 \quad \mbox{for all}\quad  v \in V.
+  \end{equation}
+\end{theorem}
+
+% \begin{proof} c_0 is c_d and c_1 is \widehat{c}
+%   The proof makes use of only the Cauchy--Schwarz inequality:
+%   \begin{align*}
+%     a(BA v, v)
+%     &\le a(BA v, BA v)^{1/2}\,a(v,v)^{1/2}\\
+%     &= a\bigl(\Pi\widehat{A}^{-1}\Pi^*A v,\;
+%        \Pi\widehat{A}^{-1}\Pi^*A v\bigr)^{1/2}\;\|v\|_A\\
+%     &\le c_1\;\widehat{a}\bigl(\widehat{A}^{-1}\Pi^*A v,\;
+%        \widehat{A}^{-1}\Pi^*A v\bigr)^{1/2}\;\|v\|_A\\
+%     &= c_1\;\ip{\Pi^*A v}{\widehat{A}^{-1}\Pi^*A v}%
+%        _{\widehat{V}'\times\widehat{V}}^{1/2}\;\|v\|_A
+%     = c_1\;a(BA v, v)^{1/2}\;\|v\|_A\,.
+%   \end{align*}
+%   Next, we rely on the assumption~\eqref{eq:fsl-surj} and get
+%   \begin{align*}
+%     a(v,v)
+%     &= \ip{A v}{\Pi\widehat{v}}_{V'\times V}
+%     = \ip{\Pi^*A v}{\widehat{v}}_{\widehat{V}'\times\widehat{V}}
+%     = \widehat{a}\bigl(\widehat{A}^{-1}\Pi^*A v,\;\widehat{v}\bigr)\\
+%     &\le \widehat{a}\bigl(\widehat{A}^{-1}\Pi^*A v,\;
+%        \widehat{A}^{-1}\Pi^*A v\bigr)^{1/2}\;\|\widehat{v}\|_{\widehat{A}}
+%     \le c_0\;a(BA v, v)^{1/2}\;\|v\|_A\,.
+%     \qedhere
+%   \end{align*}
+% \end{proof}
+
+From~\eqref{eq:fsl-result} we immediately get an estimate for the
+spectral condition number of the preconditioned operator~$BA$:
+\begin{equation}
+  \label{eq:cond}
+  \kappa(BA) := \frac{\lambda_{\max}(BA)}%
+    {\lambda_{\min}(BA)} \le (c_d\widehat{c})^2.
+\end{equation}
+
+\begin{corollary}
+  \label{cor:approx}
+  If a preconditioner $\widehat{B}$ is used to approximate $\widehat{A}^{-1}$, then the condition number of the resulting preconditioned operator can be estimated as
+  \begin{equation}\label{eq:cond-approx}
+    \kappa\bigl((\Pi\widehat{B}\Pi^*)A\bigr)
+    \le \kappa(\widehat{B}\widehat{A})\,(c_d\widehat{c})^2,
+  \end{equation}
+\end{corollary}
+
+% \begin{proof} c_0 is c_d and c_1 is \widehat{c}
+%   This result is a consequence of the obvious inequality
+%   \[
+%     \kappa\bigl((\Pi\widehat{B}\Pi^*)A\bigr)
+%     \le \kappa(\widehat{B}\widehat{A})\,\kappa(BA).
+%     \qedhere
+%   \]
+% \end{proof}
+\section{CutFEM and auxiliary space preconditioning}
+\subsection{Preliminaries and some notation}
+For CutFEM, we take $\widehat{V}=\widetilde{V}=V$, so there is no need to introduce separate variables $\widetilde{v}$, etc., and the operator $\Pi$ reduces to the identity.
+For $u,v\in V$, the bilinear forms of interest are:
+ \begin{equation}
+  \begin{aligned}
+  A(u,v)&=a(u,v)+a_\partial(u,v) +a_{\text{gh}}(u,v),\\
+  \widetilde{A}(u,v)&=a(u,v)+a_\partial(u,v),\\
+  \widehat{A}(u,v)&=a(u,v)+\widehat{a}_\partial(u,v).
+  \end{aligned}
+  \end{equation}
+Following standard CutFEM notation, the individual forms are
+\begin{equation}
+  \begin{aligned}
+&  a(u,v) = \int_{\Omega_\text{act}} K(x)\nabla u \cdot \nabla v\,dx, \quad
+  a_\partial(u,v) = \frac{\gamma}{h}\int_{\Gamma} u v\,ds, \\
+& a_{\text{gh}}(u,v) = \mbox{"ghost" and other DG terms}.\\
+& \widehat{a}_\partial(u,v) = \frac{\gamma}{h}\int_{\widehat{\Gamma}} u v\,ds.
+  \end{aligned}
+\end{equation}
+The following well-known result from CutFEM theory will be used to verify the assumptions of Theorem~\ref{thm:fsl}.
+\begin{lemma}\label{lem:spectral-equivalence} 
+The bilinear forms $A(\cdot,\cdot)$ and $\widetilde{A}(\cdot,\cdot)$ are spectrally equivalent: there exist positive constants $c_{\text{lo}}$ and $c_{\text{up}}$ such that
+\begin{equation}
+  \label{eq:spectral-equivalence}
+  c_\text{lo}\|v\|_A^2 \le \|v\|_{\widetilde{A}}^2 \le c_\text{up}\|v\|_A^2 \quad \mbox{for all}\quad v \in V.
+\end{equation}
+\end{lemma}
+
+\subsection{A simple uniform preconditioner for CutFEM}
+Using Lemma~\ref{lem:spectral-equivalence}, we now apply the auxiliary space preconditioning framework to CutFEM. The construction proceeds as follows:
+\begin{enumerate}[{\bf \arabic{section}.\arabic{subsection}.1.}]
+  \item We choose $\widetilde{V}=V$, i.e., the auxiliary space is the finite element space on the {\bf active mesh} $\Omega_\text{act}$ (the union of all elements intersecting $\Omega$), equipped with the bilinear form without the ghost penalty term $a_{\text{gh}}(\cdot,\cdot)$.
+  \item Since $\widetilde{V}=V$, we set $\Pi=I$.
+  \item To show that $\widetilde{A}$ is a uniform preconditioner for $A$, we need to verify the assumptions of Theorem~\ref{thm:fsl}.
+  Since $\Pi=I$, conditions~\eqref{eq:fsl-bdd} and~\eqref{eq:fsl-stab} reduce to showing:
+  \begin{equation}\label{eq:fls-bdd-stable-tilde}
+    \begin{aligned}
+     &\|v\|_{\widetilde{A}} \lesssim\|v\|_{A}\lesssim\|v\|_{\widetilde{A}}.
+    \end{aligned}
+  \end{equation} 
+  This is precisely the content of Lemma~\ref{lem:spectral-equivalence}, so $\widetilde{A}$ is a uniform preconditioner for $A$.
+  \item To show that $\widehat{A}$ is also a uniform preconditioner for $A$, it suffices to compare it with $\widetilde{A}$ by establishing
+  \begin{equation}\label{eq:fls-bdd-stable-hat}
+    \begin{aligned}
+&     \|v\|_{\widetilde{A}} \lesssim\|v\|_{\widehat{A}}\lesssim \|v\|_{\widetilde{A}}.
+    \end{aligned}
+  \end{equation} 
+  This reduces to comparing $a_\partial(\cdot,\cdot)$ and $\widehat{a}_\partial(\cdot,\cdot)$, which follows from the geometric proximity of $\Gamma$ and $\widehat{\Gamma}$.
+\end{enumerate}
+
+\section{Higher order elements}
+We now assume that we have a quadratic or cubic FE discretization with CutFEM. We then have the CutFEM bilinear forms as described above but now with higher order elements. Let $V_p$ be the finite element space of degree $p$, $p=2,3$ bounded. 
+ Since we assume the spectral equivalence of $\widetilde{A}$ and $A$ ({\bf is this true?}), we have (as before in~\eqref{eq:spectral-equivalence}).
+\begin{equation}
+  \|v\|_{\widetilde{A}}^2 \eqsim \|v_n\|_{A}^2, 
+  \quad \mbox{for all}\quad v \in \widetilde{V}.
+\end{equation}
+We therefore need to only construct a uniform preconditioner for $\widetilde{A}$ (as we did in the case of linear elements).
+
+We begin by introducing the matrix representation $\Pi_{1,p}$ of the natural inclusion of the space of piece-wise linear elements $V_1$ into the space of higher order elements $V_p$:
+\[\Pi_{1,p} : V_{1}\subset V_{\text{p}},\] 
+which is given by the following block matrix:
+\begin{equation}
+\Pi_{1,p} = \begin{pmatrix}
+    I \\
+    \Pi_{qn}
+  \end{pmatrix}.
+\end{equation}
+Here $\Pi_{qn}$ is the linear interpolation operator which depends a bit on the basis used in the CutFEM. We have two cases and we shall take $p=2$ as it is easier to explain the ideas.
+\begin{enumerate}
+\item (Standard case):
+   if nodal basis for $V_{p=2}$ is considered. This is the usual case. Then the entries of $\Pi_{qn}$ are the values of the linear nodal basis functions at the edge midpoints so they are just equal to $0.5$ two non-zero entries per row. 
+\item If a hierarchical basis is used, then $\Pi_{qn}$ is the zero matrix because $A_{nn}$ is already the matrix corresponding to discretization $V_1$.
+\end{enumerate}
+
+The two level algorithm is as follows. We first define the stiffness matrix on $V_1$:
+\begin{equation}
+  \widetilde{A}_{p=1} = \Pi_{1,p}^{*}\,\widetilde{A}\,\Pi_{1,p}.
+\end{equation}
+
+\begin{algorithm}[H]
+\caption{Two-level preconditioner for higher-order CutFEM: $B_{\mathrm{TL}}\, g$}
+\label{alg:two-level}
+\begin{algorithmic}[1]
+\medskip
+\STATE \textbf{function} $B_{\mathrm{TL}}g = \textsc{Two\_Level}(g,\; S,\; \widetilde{A}_{p=1},\; \Pi_{1,p})$
+\medskip
+\STATE \quad \textbf{Pre-smoothing:} $u \leftarrow S\, g$ \COMMENT{Example: $S = \operatorname{diag}\!\left(\frac{1}{\sum_{j}|a_{ij}|}\right)$}
+\STATE \quad Compute the residual: $r \leftarrow g - \widetilde{A}\, u$
+\STATE \quad \textbf{Coarse-grid correction:}
+\STATE \qquad Restrict: $r_c \leftarrow \Pi_{1,p}^{T}\, r$
+\STATE \qquad Coarse solve: $e_c \leftarrow \mathrm{AMG}(\widetilde{A}_{p=1})\, r_c$ \COMMENT{$\mathrm{AMG}(\widetilde{A}_{p=1})$ has been implemented}
+\STATE \qquad Prolongate and correct: $u \leftarrow u + \Pi_{1,p}\, e_c$
+\STATE \quad Update the residual: $r \leftarrow g - \widetilde{A}\, u$
+\STATE \quad \textbf{Post-smoothing:} $u \leftarrow u + S\, r$
+\STATE \quad \RETURN $B_{\mathrm{TL}}g \leftarrow u$
+\STATE \textbf{end function}
+\end{algorithmic}
+\end{algorithm}
+
+\appendix
+\section{Observations and extensions}
+We collect several observations on the mappings introduced in Section~1 and discuss extensions of the theory.
+\subsection{Constructing a surjective mapping}
+\begin{enumerate}[{\bf {\thesubsection}.1.}]
+\item The surjectivity of $\Pi$ plays an essential role in Theorem~\ref{thm:fsl}. To see why, consider the finite-dimensional case with $\dim \widehat{V} < \dim V$. Then $\Pi^*: V' \to \widehat{V}'$ has a nontrivial kernel, so $B$ cannot be an isomorphism. Hence, at a minimum, we need $\dim \widehat{V} \ge \dim V$.
+\item A key step in overcoming this dimensional restriction, introduced in~\cite{Xu1996}, is to define $\widehat{V}$ as a product space:
+\begin{equation}
+  \widehat{V} = V \times \widetilde{V},
+\quad\mbox{where}\quad\widetilde{V}\quad \mbox{is another auxiliary space.} 
+\end{equation} 
+\item With this construction, the condition $\dim \widehat{V} \ge \dim V$ is automatically satisfied, and there are many possible choices of surjective $\Pi$.
+\end{enumerate}
+\subsection{Adding smoothers}
+  We now focus on a choice \(\widehat{V} = V \times \widetilde{V}\) where $\widetilde{V}$ is an auxiliary space equipped with a bilinear form $\widetilde{A}(\cdot,\cdot)$ inducing an operator $\widetilde{A} : \widetilde{V} \to \widetilde{V}'$.
+\begin{enumerate}[{\bf {\thesubsection}.1.}]
+\item The bilinear form on $\widehat{V}$ is defined as
+\begin{equation}\label{eq:a-aux}
+  \widehat{A}(\widehat{v},\widehat{w}) = S(v,w) + \widetilde{A}(\widetilde{v},\widetilde{w}), \quad 
+  \widehat{v} = (v,\widetilde{v}) \in \widehat{V}, \quad \widehat{w} = (w,\widetilde{w}) \in \widehat{V}.
+\end{equation}
+\item In~\eqref{eq:a-aux}, the bilinear form $S(\cdot,\cdot)$ need only be equivalent to $A(\cdot,\cdot)$ on the ``high-frequency'' subspace; it can be taken as the bilinear form of a \emph{smoother}, such as the Jacobi method, the symmetric Gau\ss--Seidel method, or an additive/multiplicative Schwarz method with small subspaces.
+\item As before, we use the same symbol $S$ for both the bilinear form and the induced operator.
+
+\item Given an operator $\widetilde{\Pi} : \widetilde{V} \to V$ (not necessarily surjective), we construct {\bf a surjective} $\Pi:\widehat{V} \to V$ as
+\begin{equation}
+  \label{eq:Pi-def}
+  \Pi := \begin{pmatrix}
+    I & \widetilde{\Pi} 
+  \end{pmatrix} : \widehat{V} \mapsto V, 
+  \quad\Pi\widehat{v}=\Pi(v,\widetilde{v}) = v + \widetilde{\Pi}\widetilde{v}.
+\end{equation}
+\item With this choice, the auxiliary space preconditioner~\eqref{eq:fsp} becomes
+\begin{equation}
+  \label{eq:B-aux}
+  B = S^{-1} + \widetilde{\Pi}\widetilde{A}^{-1}\widetilde{\Pi}^*.
+\end{equation}
+\end{enumerate}
+\subsection{A verification of the assumptions of Theorem~\ref{thm:fsl}} 
+To establish that the preconditioner~\eqref{eq:B-aux} is optimal, we verify the assumptions of Theorem~\ref{thm:fsl} by establishing the following estimates:
+\begin{enumerate}[{\bf {\thesubsection}.1.}]
+  \item There is a constant $c_s > 0$ such that
+    \begin{equation}\label{eq:cs}
+      \|v\|_A \le c_s \|v\|_S \quad \mbox{for all}\quad v \in V.
+    \end{equation}
+  \item There exists a constant $\widetilde{c}$ such that 
+    \begin{equation}\label{eq:tilde-c}
+      \|\widetilde\Pi \widetilde{v}\|_A 
+      \le \widetilde{c}\|\widetilde{v}\|_{\widetilde{A}},
+      \quad \mbox{for all} \quad \widetilde{v} \in \widetilde{V}.
+    \end{equation}
+  \item For every  $v \in V$ there are $v_s \in V$ and
+    $\widetilde{v} \in \widetilde{V}$ such that $v = v_s + \widetilde{\Pi}\widetilde{v}$ and
+    \begin{equation}\label{eq:stable-decomp}
+      \|v_s\|_S^2 + \widetilde{A}(\widetilde{v},\widetilde{v})
+      \le c_d^2\,\|v\|_A^2,
+    \end{equation}
+    where $c_d > 0$ is independent of $v$ and uniform with respect to the parameters of interest (such as the problem dimension).
+\item Under these conditions, Theorem~\ref{thm:fsl} yields
+\begin{equation}
+  \label{eq:cond-aux}
+  \kappa(BA) \le c_d^2\bigl(c_s^2 + \widetilde{c}^2\bigr).
+\end{equation}
+\item {\bf Remark:} The estimates~\eqref{eq:cs} and~\eqref{eq:tilde-c} readily imply~\eqref{eq:fsl-bdd} with $\widehat{c}^2 = c_s^2 + \widetilde{c}^2$.
+\item The verification of~\eqref{eq:cs} is usually straightforward. For the Gauss--Seidel method, one can take $c_s = 1$; for the Jacobi method, $c_s = \left\|[\operatorname{diag}(A)]^{-1}A\right\|_{\ell^1}$.
+\item To verify~\eqref{eq:tilde-c}, one needs a stable mapping $\widetilde\Pi : \widetilde{V} \to V$, typically chosen as an interpolation operator or a global/local $L^2$-orthogonal projection.
+% With the elliptic projection, eqref{eq:tilde-c} is immediate with $\widetilde{c}=1$. But the elliptic projection may not be a good choice for the next item. 
+\item Verifying~\eqref{eq:stable-decomp} is typically more involved. For a given $v\in V$, one chooses $\widetilde{v}$ so that $\widetilde{\Pi}\widetilde{v}$ approximates $v$ well in the $A$-norm, and then defines
+\begin{equation}
+  v_s = v - \widetilde{\Pi}\widetilde{v}.
+\end{equation}
+The required estimates then take the form
+\begin{equation}\label{eq:stable-decomp-1}
+  h^{-2}\|v - \widetilde{\Pi}\widetilde{v}\|_{L^2} + 
+  \|\widetilde{v}\|_{\widetilde{A}}^2 \le c_d^2\,\|v\|_A^2.
+\end{equation}
+Here we have used the fact that, for finite element spaces with $S$ being a smoother,
+\[
+\|w\|_S^2 \eqsim h^{-2}\|w\|_{L^2}^2, \quad \mbox{for all}\quad w \in V.
+\]
+The proof of~\eqref{eq:stable-decomp-1} relies on the approximation properties and the $A$-norm stability of $\widetilde{\Pi}$.
+\end{enumerate}
+
+This concludes our summary of the auxiliary space preconditioning framework as introduced in~\cite{Xu1996}; see also~\cite{HiptmairXu2007}.
+
+%======================================================================
+\bibliographystyle{plain}
+\bibliography{bib_auxiliary}
+
+\end{document}
